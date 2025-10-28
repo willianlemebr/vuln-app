@@ -21,10 +21,30 @@ on:
         - integration
         - dast
         - e2e
+        - security-only
+      target_environment:
+        description: 'Environment to test against'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      skip_performance_tests:
+        description: 'Skip performance baseline tests'
+        required: false
+        default: false
+        type: boolean
+      create_release:
+        description: 'Create release after successful tests'
+        required: false
+        default: true
+        type: boolean
 
 env:
   STAGING_URL: https://vulnapp67-staging.azurewebsites.net
   PRODUCTION_URL: https://vulnapp67.azurewebsites.net
+  TARGET_URL: ${{ github.event.inputs.target_environment == 'production' && 'https://vulnapp67.azurewebsites.net' || 'https://vulnapp67-staging.azurewebsites.net' }}
 
 jobs:
   integration-tests:
@@ -47,46 +67,51 @@ jobs:
 
     - name: Wait for staging deployment
       run: |
-        echo "Waiting for staging environment to be ready..."
+        echo "Waiting for target environment to be ready..."
+        TARGET_URL="${{ env.TARGET_URL }}"
+        echo "Testing against: ${TARGET_URL}"
         for i in {1..10}; do
-          if curl -f -s "${{ env.STAGING_URL }}" > /dev/null; then
-            echo "✅ Staging environment is ready!"
+          if curl -f -s "${TARGET_URL}" > /dev/null; then
+            echo "✅ Target environment is ready!"
             break
           fi
-          echo "⏳ Waiting for staging... (attempt $i/10)"
+          echo "⏳ Waiting for environment... (attempt $i/10)"
           sleep 30
         done
 
     - name: Run API Integration Tests
       run: |
-        echo "Running integration tests against staging environment..."
+        TARGET_URL="${{ env.TARGET_URL }}"
+        echo "Running integration tests against target environment: ${TARGET_URL}"
         
         # Test basic connectivity
         echo "Testing basic connectivity..."
-        curl -f "${{ env.STAGING_URL }}" || exit 1
+        curl -f "${TARGET_URL}" || exit 1
         
         # Test main endpoints
         echo "Testing main endpoints..."
-        curl -f "${{ env.STAGING_URL }}/" || exit 1
-        curl -f "${{ env.STAGING_URL }}/about" || exit 1
-        curl -f "${{ env.STAGING_URL }}/contact" || exit 1
+        curl -f "${TARGET_URL}/" || exit 1
+        curl -f "${TARGET_URL}/about" || exit 1
+        curl -f "${TARGET_URL}/contact" || exit 1
         
         # Test POST endpoints (if available)
         echo "Testing POST endpoints..."
         curl -X POST -H "Content-Type: application/json" \
              -d '{"email":"test@example.com","message":"test"}' \
-             "${{ env.STAGING_URL }}/contact" || true
+             "${TARGET_URL}/contact" || true
         
         echo "✅ Integration tests completed successfully!"
 
     - name: Performance baseline test
+      if: github.event.inputs.skip_performance_tests != 'true'
       run: |
-        echo "Running performance baseline tests..."
+        TARGET_URL="${{ env.TARGET_URL }}"
+        echo "Running performance baseline tests against: ${TARGET_URL}"
         
         # Simple load test using curl
         echo "Testing response times..."
         for i in {1..5}; do
-          time curl -s "${{ env.STAGING_URL }}" > /dev/null
+          time curl -s "${TARGET_URL}" > /dev/null
         done
         
         echo "✅ Performance baseline test completed!"
@@ -95,7 +120,7 @@ jobs:
     name: DAST Security Tests
     runs-on: ubuntu-latest
     needs: integration-tests
-    if: github.event.inputs.test_type == 'all' || github.event.inputs.test_type == 'dast' || github.event_name == 'schedule' || github.event_name == 'workflow_run'
+    if: github.event.inputs.test_type == 'all' || github.event.inputs.test_type == 'dast' || github.event.inputs.test_type == 'security-only' || github.event_name == 'schedule' || github.event_name == 'workflow_run'
     
     steps:
     - name: Checkout code
@@ -104,21 +129,21 @@ jobs:
     - name: OWASP ZAP Baseline Scan
       uses: zaproxy/action-baseline@v0.10.0
       with:
-        target: ${{ env.STAGING_URL }}
+        target: ${{ env.TARGET_URL }}
         rules_file_name: '.zap/rules.tsv'
         cmd_options: '-a'
 
     - name: OWASP ZAP Full Scan
       uses: zaproxy/action-full-scan@v0.8.0
       with:
-        target: ${{ env.STAGING_URL }}
+        target: ${{ env.TARGET_URL }}
         rules_file_name: '.zap/rules.tsv'
         cmd_options: '-a'
 
     - name: Nuclei Vulnerability Scan
       uses: projectdiscovery/nuclei-action@main
       with:
-        target: ${{ env.STAGING_URL }}
+        target: ${{ env.TARGET_URL }}
         github-report: true
         github-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -207,7 +232,7 @@ jobs:
         EOF
 
         # Run the tests
-        STAGING_URL=${{ env.STAGING_URL }} npx playwright test
+        TARGET_URL=${{ env.TARGET_URL }} npx playwright test
 
     - name: Upload E2E Test Results
       uses: actions/upload-artifact@v3
@@ -254,7 +279,7 @@ jobs:
         # Security Compliance Report
         
         ## Scan Date: $(date)
-        ## Target: ${{ env.STAGING_URL }}
+        ## Target: ${{ env.TARGET_URL }}
         
         ### Results Summary
         - Critical Issues: $CRITICAL_ISSUES
@@ -299,6 +324,8 @@ jobs:
         echo "## Deployment Information" >> release-notes.md
         echo "- **Commit:** ${{ github.sha }}" >> release-notes.md
         echo "- **Branch:** ${{ github.ref_name }}" >> release-notes.md
+        echo "- **Target Environment:** ${{ github.event.inputs.target_environment || 'staging' }}" >> release-notes.md
+        echo "- **Target URL:** ${{ env.TARGET_URL }}" >> release-notes.md
         echo "- **Staging URL:** ${{ env.STAGING_URL }}" >> release-notes.md
         echo "- **Production URL:** ${{ env.PRODUCTION_URL }}" >> release-notes.md
         echo "" >> release-notes.md
@@ -318,7 +345,7 @@ jobs:
         fi
 
     - name: Create Release Tag
-      if: needs.integration-tests.result == 'success' && needs.e2e-tests.result == 'success'
+      if: (needs.integration-tests.result == 'success' && needs.e2e-tests.result == 'success') && (github.event.inputs.create_release != 'false')
       run: |
         RELEASE_TAG="release-$(date '+%Y%m%d-%H%M%S')"
         echo "RELEASE_TAG=${RELEASE_TAG}" >> $GITHUB_ENV
@@ -326,7 +353,7 @@ jobs:
         git push origin ${RELEASE_TAG}
 
     - name: Promote to Production
-      if: needs.integration-tests.result == 'success' && needs.e2e-tests.result == 'success'
+      if: (needs.integration-tests.result == 'success' && needs.e2e-tests.result == 'success') && (github.event.inputs.create_release != 'false')
       run: |
         echo "All tests passed. Release is ready for production promotion."
         echo "::notice::Production deployment approved - all quality gates passed"

@@ -15,6 +15,7 @@ Este repositório agora conta com um sistema completo de CI/CD usando GitHub Act
   - Semgrep para análise de segurança
   - CodeQL para análise de código
   - Upload automático de resultados SARIF
+- ✅ **Execução Manual** com opções para scan completo e pular testes
 
 ### 🚀 Pipeline 2: CD (Continuous Deployment)
 **Arquivo:** `.github/workflows/cd-pipeline.yml`
@@ -26,17 +27,19 @@ Este repositório agora conta com um sistema completo de CI/CD usando GitHub Act
 - ✅ **Image Registration** no Azure Container Registry
 - ✅ **Deploy** automatizado para staging e produção no Azure
 - ✅ Scan de vulnerabilidades na imagem Docker (Trivy)
+- ✅ **Execução Manual** com seleção de ambiente e opções de force deploy
 
 ### 🧪 Pipeline 3: Testing e Release Management
 **Arquivo:** `.github/workflows/testing-release-pipeline.yml`
 
 **Funcionalidades implementadas:**
-- ✅ **Integration Tests** contra ambiente de staging
+- ✅ **Integration Tests** contra ambiente de staging/produção
 - ✅ **DAST** (Dynamic Application Security Testing):
   - OWASP ZAP baseline e full scan
   - Nuclei vulnerability scanner
 - ✅ **E2E Tests** usando Playwright
 - ✅ **Release Management** com criação automática de releases
+- ✅ **Execução Manual** com seleção de tipos de teste e ambiente alvo
 
 ## 📁 Arquivos Criados
 
@@ -47,8 +50,9 @@ Este repositório agora conta com um sistema completo de CI/CD usando GitHub Act
 │   ├── ci-pipeline.yml              # Pipeline de CI
 │   ├── cd-pipeline.yml              # Pipeline de CD
 │   └── testing-release-pipeline.yml # Pipeline de Testing
-├── README.md                        # Documentação das pipelines
-└── secrets-template.md              # Template para configuração de secrets
+├── README.md                        # Documentação detalhada das pipelines
+├── secrets-template.md              # Template para configuração de secrets
+└── MANUAL_EXECUTION.md             # Guia de execução manual das pipelines
 ```
 
 ### Configurações de Ferramentas
@@ -149,9 +153,13 @@ Configure estes ambientes no GitHub:
 ## 🚀 Para Começar
 
 1. **Configure os secrets** usando o template em `.github/secrets-template.md`
-2. **Faça um push** para a branch `main`
-3. **Acompanhe** a execução das pipelines na aba Actions
-4. **Monitore** os resultados na aba Security
+2. **Configure os ambientes** staging/production no GitHub
+3. **Faça um push** para a branch `main` ou **execute manualmente** via Actions
+4. **Acompanhe** a execução das pipelines na aba Actions
+5. **Monitore** os resultados na aba Security
+
+### 📖 Execução Manual
+Para executar as pipelines manualmente com opções customizadas, consulte o guia detalhado em `.github/MANUAL_EXECUTION.md`.
 
 As pipelines estão prontas para uso e seguem as melhores práticas de DevSecOps, incluindo shift-left security e automated compliance checking.
 

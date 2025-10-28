@@ -5,6 +5,18 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      run_full_scan:
+        description: 'Run full security scan (includes all SAST tools)'
+        required: false
+        default: true
+        type: boolean
+      skip_tests:
+        description: 'Skip test execution'
+        required: false
+        default: false
+        type: boolean
 
 env:
   NODE_VERSION: '14'

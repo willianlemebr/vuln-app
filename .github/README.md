@@ -13,6 +13,9 @@ Este repositório contém três pipelines principais para CI/CD:
 ### Triggers:
 - Push para branches `main` ou `develop`
 - Pull requests para branch `main`
+- **Execução manual** com opções para:
+  - Executar scan completo de segurança
+  - Pular execução de testes
 
 ## 2. Pipeline de CD (Continuous Deployment) - `cd-pipeline.yml`
 
@@ -25,7 +28,10 @@ Este repositório contém três pipelines principais para CI/CD:
 
 ### Triggers:
 - Após conclusão bem-sucedida da pipeline de CI
-- Execução manual com seleção de ambiente
+- **Execução manual** com opções para:
+  - Seleção de ambiente (staging, production, both)
+  - Forçar deploy mesmo se CI falhar
+  - Pular testes pré-deploy
 
 ## 3. Pipeline de Testing e Release - `testing-release-pipeline.yml`
 
@@ -37,7 +43,11 @@ Este repositório contém três pipelines principais para CI/CD:
 
 ### Triggers:
 - Após conclusão da pipeline de CD
-- Execução manual
+- **Execução manual** com opções para:
+  - Tipo de teste (all, integration, dast, e2e, security-only)
+  - Ambiente alvo (staging, production)
+  - Pular testes de performance
+  - Controlar criação de release
 - Agendamento diário para DAST
 
 ## Configuração Necessária
