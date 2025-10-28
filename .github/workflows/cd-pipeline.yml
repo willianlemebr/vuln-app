@@ -94,14 +94,30 @@ jobs:
 
     - name: Create application package
       run: |
-        mkdir -p dist
-        cp -r . dist/
-        cd dist
-        rm -rf node_modules .git .github
+        # Create temporary build directory
+        BUILD_DIR=$(mktemp -d)
+        echo "Build directory: $BUILD_DIR"
+        
+        # Copy application files to build directory
+        cp app.js package*.json "$BUILD_DIR/"
+        cp -r views/ "$BUILD_DIR/"
+        cp Dockerfile README.md "$BUILD_DIR/" 2>/dev/null || true
+        cp docker-compose.yml "$BUILD_DIR/" 2>/dev/null || true
+        
+        # Install production dependencies
+        cd "$BUILD_DIR"
         npm ci --only=production
-        tar -czf ../app-${{ needs.prebuild.outputs.version }}.tar.gz .
-        cd ..
+        
+        # Create archive
+        tar -czf app-${{ needs.prebuild.outputs.version }}.tar.gz .
+        mv app-${{ needs.prebuild.outputs.version }}.tar.gz "$GITHUB_WORKSPACE/"
+        
+        # Return to workspace and verify
+        cd "$GITHUB_WORKSPACE"
         ls -la app-${{ needs.prebuild.outputs.version }}.tar.gz
+        
+        # Cleanup
+        rm -rf "$BUILD_DIR"
 
     - name: Upload application artifact
       uses: actions/upload-artifact@v4
