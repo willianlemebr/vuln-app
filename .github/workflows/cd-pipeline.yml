@@ -104,7 +104,7 @@ jobs:
         ls -la app-${{ needs.prebuild.outputs.version }}.tar.gz
 
     - name: Upload application artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: app-package-${{ needs.prebuild.outputs.version }}
         path: app-${{ needs.prebuild.outputs.version }}.tar.gz
@@ -148,7 +148,7 @@ jobs:
         output: 'trivy-results.sarif'
 
     - name: Upload Trivy scan results
-      uses: github/codeql-action/upload-sarif@v2
+      uses: github/codeql-action/upload-sarif@v3
       if: always()
       with:
         sarif_file: 'trivy-results.sarif'
@@ -162,12 +162,12 @@ jobs:
     
     steps:
     - name: Azure Login
-      uses: azure/login@v1
+      uses: azure/login@v2
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
     - name: Deploy to Azure Web App (Staging)
-      uses: azure/webapps-deploy@v2
+      uses: azure/webapps-deploy@v3
       with:
         app-name: ${{ env.AZURE_WEBAPP_NAME }}-staging
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prebuild.outputs.version }}
@@ -197,12 +197,12 @@ jobs:
     
     steps:
     - name: Azure Login
-      uses: azure/login@v1
+      uses: azure/login@v2
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
     - name: Deploy to Azure Web App (Production)
-      uses: azure/webapps-deploy@v2
+      uses: azure/webapps-deploy@v3
       with:
         app-name: ${{ env.AZURE_WEBAPP_NAME }}
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prebuild.outputs.version }}
@@ -225,12 +225,12 @@ jobs:
         done
 
     - name: Create GitHub Release
-      uses: actions/create-release@v1
+      uses: softprops/action-gh-release@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ needs.prebuild.outputs.version }}
-        release_name: Release ${{ needs.prebuild.outputs.version }}
+        name: Release ${{ needs.prebuild.outputs.version }}
         body: |
           ## Changes in this Release
           - Automated deployment of commit ${{ github.sha }}
