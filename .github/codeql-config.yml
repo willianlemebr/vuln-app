@@ -1,0 +1,17 @@
+name: "CodeQL Config"
+
+disable-default-path-filters: false
+
+paths:
+  - "**/*.js"
+  - "!node_modules/**"
+  - "!dist/**"
+  - "!build/**"
+
+paths-ignore:
+  - "**/*.min.js"
+  - "**/test/**"
+  - "**/tests/**"
+
+queries:
+  - uses: security-and-quality

@@ -113,6 +113,10 @@ jobs:
     name: Docker Image Creation
     runs-on: ubuntu-latest
     needs: [prebuild, build]
+    permissions:
+      contents: read
+      security-events: write
+      packages: write
     
     steps:
     - name: Checkout code
