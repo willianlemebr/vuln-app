@@ -253,10 +253,13 @@ jobs:
             if curl -f -s "${STAGING_URL}" > /dev/null; then
               echo "✅ Staging deployment successful!"
               break
-          fi
-          echo "⏳ Waiting for deployment... (attempt $i/5)"
-          sleep 10
-        done
+            fi
+            echo "⏳ Waiting for deployment... (attempt $i/5)"
+            sleep 10
+          done
+        else
+          echo "✅ Deployment verification skipped (test mode)"
+        fi
 
   deploy-production:
     name: Deploy to Production (Test Mode)
