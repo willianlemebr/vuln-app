@@ -157,8 +157,8 @@ jobs:
         platforms: linux/amd64
         push: false  # Changed to false for testing
         tags: |
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prebuild.outputs.version }}
-          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          ${{ env.IMAGE_NAME }}:latest
+          ${{ env.IMAGE_NAME }}:${{ needs.prebuild.outputs.version }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
         load: true  # Load image locally for testing
@@ -174,12 +174,35 @@ jobs:
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prebuild.outputs.version }}
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
+    - name: Verify local Docker image
+      run: |
+        echo "🔍 Checking local Docker images..."
+        docker images
+        echo "🎯 Verifying target image exists: ${{ env.IMAGE_NAME }}:latest"
+        if docker image inspect ${{ env.IMAGE_NAME }}:latest > /dev/null 2>&1; then
+          echo "✅ Image found successfully"
+        else
+          echo "❌ Image not found - Trivy scan will be skipped"
+          echo "SKIP_TRIVY=true" >> $GITHUB_ENV
+        fi
+
     - name: Scan Docker image for vulnerabilities (local)
+      if: env.SKIP_TRIVY != 'true'
       uses: aquasecurity/trivy-action@master
       with:
         image-ref: ${{ env.IMAGE_NAME }}:latest
         format: 'sarif'
         output: 'trivy-results.sarif'
+      continue-on-error: true
+
+    - name: Fallback filesystem scan (if image scan fails)
+      if: env.SKIP_TRIVY == 'true'
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-fs-results.sarif'
       continue-on-error: true
 
     - name: Upload Trivy scan results
