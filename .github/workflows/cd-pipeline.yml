@@ -109,15 +109,14 @@ jobs:
         cd "$BUILD_DIR"
         npm ci --only=production
         
-        # Create archive
-        tar -czf app-${{ needs.prebuild.outputs.version }}.tar.gz .
-        mv app-${{ needs.prebuild.outputs.version }}.tar.gz "$GITHUB_WORKSPACE/"
-        
-        # Return to workspace and verify
+        # Create archive from parent directory to avoid "file changed" error
         cd "$GITHUB_WORKSPACE"
-        ls -la app-${{ needs.prebuild.outputs.version }}.tar.gz
+        tar -czf app-${{ needs.prebuild.outputs.version }}.tar.gz -C "$BUILD_DIR" .
         
-        # Cleanup
+        # Verify and cleanup
+        ls -la app-${{ needs.prebuild.outputs.version }}.tar.gz
+        rm -rf "$BUILD_DIR"
+        echo "✅ Application package created successfully"
         rm -rf "$BUILD_DIR"
 
     - name: Upload application artifact
