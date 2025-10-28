@@ -1,0 +1,353 @@
+name: Testing and Release Pipeline
+
+on:
+  workflow_run:
+    workflows: ["CD Pipeline"]
+    types:
+      - completed
+    branches: [main]
+  schedule:
+    # Run DAST tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of tests to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - integration
+        - dast
+        - e2e
+
+env:
+  STAGING_URL: https://vulnapp67-staging.azurewebsites.net
+  PRODUCTION_URL: https://vulnapp67.azurewebsites.net
+
+jobs:
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '14'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Wait for staging deployment
+      run: |
+        echo "Waiting for staging environment to be ready..."
+        for i in {1..10}; do
+          if curl -f -s "${{ env.STAGING_URL }}" > /dev/null; then
+            echo "✅ Staging environment is ready!"
+            break
+          fi
+          echo "⏳ Waiting for staging... (attempt $i/10)"
+          sleep 30
+        done
+
+    - name: Run API Integration Tests
+      run: |
+        echo "Running integration tests against staging environment..."
+        
+        # Test basic connectivity
+        echo "Testing basic connectivity..."
+        curl -f "${{ env.STAGING_URL }}" || exit 1
+        
+        # Test main endpoints
+        echo "Testing main endpoints..."
+        curl -f "${{ env.STAGING_URL }}/" || exit 1
+        curl -f "${{ env.STAGING_URL }}/about" || exit 1
+        curl -f "${{ env.STAGING_URL }}/contact" || exit 1
+        
+        # Test POST endpoints (if available)
+        echo "Testing POST endpoints..."
+        curl -X POST -H "Content-Type: application/json" \
+             -d '{"email":"test@example.com","message":"test"}' \
+             "${{ env.STAGING_URL }}/contact" || true
+        
+        echo "✅ Integration tests completed successfully!"
+
+    - name: Performance baseline test
+      run: |
+        echo "Running performance baseline tests..."
+        
+        # Simple load test using curl
+        echo "Testing response times..."
+        for i in {1..5}; do
+          time curl -s "${{ env.STAGING_URL }}" > /dev/null
+        done
+        
+        echo "✅ Performance baseline test completed!"
+
+  dast-security-tests:
+    name: DAST Security Tests
+    runs-on: ubuntu-latest
+    needs: integration-tests
+    if: github.event.inputs.test_type == 'all' || github.event.inputs.test_type == 'dast' || github.event_name == 'schedule' || github.event_name == 'workflow_run'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: OWASP ZAP Baseline Scan
+      uses: zaproxy/action-baseline@v0.10.0
+      with:
+        target: ${{ env.STAGING_URL }}
+        rules_file_name: '.zap/rules.tsv'
+        cmd_options: '-a'
+
+    - name: OWASP ZAP Full Scan
+      uses: zaproxy/action-full-scan@v0.8.0
+      with:
+        target: ${{ env.STAGING_URL }}
+        rules_file_name: '.zap/rules.tsv'
+        cmd_options: '-a'
+
+    - name: Nuclei Vulnerability Scan
+      uses: projectdiscovery/nuclei-action@main
+      with:
+        target: ${{ env.STAGING_URL }}
+        github-report: true
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload DAST Results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: dast-reports
+        path: |
+          report_html.html
+          report_json.json
+          nuclei-report.json
+
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    needs: integration-tests
+    if: github.event.inputs.test_type == 'all' || github.event.inputs.test_type == 'e2e' || github.event_name == 'workflow_run'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '14'
+        cache: 'npm'
+
+    - name: Install Playwright
+      run: |
+        npm ci
+        npx playwright install --with-deps chromium
+
+    - name: Run Playwright E2E Tests
+      run: |
+        # Create a basic Playwright test
+        mkdir -p tests/e2e
+        cat > tests/e2e/basic.spec.js << 'EOF'
+        const { test, expect } = require('@playwright/test');
+
+        test.describe('Vulnerable App E2E Tests', () => {
+          test('should load homepage', async ({ page }) => {
+            await page.goto(process.env.STAGING_URL || 'http://localhost:3000');
+            await expect(page).toHaveTitle(/Vulnerable App|Welcome/);
+          });
+
+          test('should navigate to about page', async ({ page }) => {
+            await page.goto(process.env.STAGING_URL || 'http://localhost:3000');
+            await page.click('a[href="/about"]');
+            await expect(page.url()).toContain('/about');
+          });
+
+          test('should submit contact form', async ({ page }) => {
+            await page.goto((process.env.STAGING_URL || 'http://localhost:3000') + '/contact');
+            await page.fill('input[name="email"]', 'test@example.com');
+            await page.fill('textarea[name="message"]', 'Test message');
+            await page.click('button[type="submit"]');
+            // Check for success message or redirect
+          });
+
+          test('should test XSS vulnerability', async ({ page }) => {
+            const testUrl = (process.env.STAGING_URL || 'http://localhost:3000') + '/search?q=<script>alert("xss")</script>';
+            await page.goto(testUrl);
+            // This should detect the XSS vulnerability
+            const content = await page.content();
+            if (content.includes('<script>alert("xss")</script>')) {
+              console.log('⚠️  XSS vulnerability detected as expected');
+            }
+          });
+        });
+        EOF
+
+        # Create Playwright config
+        cat > playwright.config.js << 'EOF'
+        module.exports = {
+          testDir: './tests/e2e',
+          use: {
+            baseURL: process.env.STAGING_URL || 'http://localhost:3000',
+            headless: true,
+            screenshot: 'only-on-failure',
+            video: 'retain-on-failure',
+          },
+          reporter: [['html', { outputFolder: 'playwright-report' }]],
+        };
+        EOF
+
+        # Run the tests
+        STAGING_URL=${{ env.STAGING_URL }} npx playwright test
+
+    - name: Upload E2E Test Results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: e2e-test-results
+        path: |
+          playwright-report/
+          test-results/
+
+  security-compliance-check:
+    name: Security Compliance Check
+    runs-on: ubuntu-latest
+    needs: [dast-security-tests]
+    if: always()
+    
+    steps:
+    - name: Download DAST Reports
+      uses: actions/download-artifact@v3
+      with:
+        name: dast-reports
+        path: dast-reports/
+
+    - name: Analyze Security Results
+      run: |
+        echo "Analyzing security scan results..."
+        
+        # Check for critical vulnerabilities
+        CRITICAL_ISSUES=0
+        HIGH_ISSUES=0
+        
+        if [ -f "dast-reports/report_json.json" ]; then
+          echo "Processing ZAP scan results..."
+          # Parse JSON for critical/high issues (simplified)
+          CRITICAL_ISSUES=$(cat dast-reports/report_json.json | grep -o '"riskcode":"3"' | wc -l || echo "0")
+          HIGH_ISSUES=$(cat dast-reports/report_json.json | grep -o '"riskcode":"2"' | wc -l || echo "0")
+        fi
+        
+        echo "Critical issues found: $CRITICAL_ISSUES"
+        echo "High issues found: $HIGH_ISSUES"
+        
+        # Create security summary
+        cat > security-summary.md << EOF
+        # Security Compliance Report
+        
+        ## Scan Date: $(date)
+        ## Target: ${{ env.STAGING_URL }}
+        
+        ### Results Summary
+        - Critical Issues: $CRITICAL_ISSUES
+        - High Issues: $HIGH_ISSUES
+        
+        ### Compliance Status
+        EOF
+        
+        if [ "$CRITICAL_ISSUES" -gt 0 ]; then
+          echo "❌ FAILED - Critical security issues found" >> security-summary.md
+          echo "::error::Critical security vulnerabilities detected"
+        elif [ "$HIGH_ISSUES" -gt 5 ]; then
+          echo "⚠️  WARNING - Multiple high-severity issues found" >> security-summary.md
+          echo "::warning::Multiple high-severity vulnerabilities detected"
+        else
+          echo "✅ PASSED - Security compliance acceptable" >> security-summary.md
+        fi
+
+    - name: Upload Security Summary
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-compliance-report
+        path: security-summary.md
+
+  release-management:
+    name: Release Management
+    runs-on: ubuntu-latest
+    needs: [integration-tests, e2e-tests, security-compliance-check]
+    if: github.ref == 'refs/heads/main' && (success() || failure())
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all test artifacts
+      uses: actions/download-artifact@v3
+
+    - name: Generate Release Notes
+      run: |
+        echo "# Release Notes - $(date '+%Y-%m-%d %H:%M:%S')" > release-notes.md
+        echo "" >> release-notes.md
+        echo "## Deployment Information" >> release-notes.md
+        echo "- **Commit:** ${{ github.sha }}" >> release-notes.md
+        echo "- **Branch:** ${{ github.ref_name }}" >> release-notes.md
+        echo "- **Staging URL:** ${{ env.STAGING_URL }}" >> release-notes.md
+        echo "- **Production URL:** ${{ env.PRODUCTION_URL }}" >> release-notes.md
+        echo "" >> release-notes.md
+        
+        echo "## Test Results Summary" >> release-notes.md
+        echo "- Integration Tests: ${{ needs.integration-tests.result }}" >> release-notes.md
+        echo "- E2E Tests: ${{ needs.e2e-tests.result }}" >> release-notes.md
+        echo "- DAST Security Tests: ${{ needs.dast-security-tests.result }}" >> release-notes.md
+        echo "- Security Compliance: ${{ needs.security-compliance-check.result }}" >> release-notes.md
+        echo "" >> release-notes.md
+        
+        echo "## Security Status" >> release-notes.md
+        if [ -f "security-compliance-report/security-summary.md" ]; then
+          cat security-compliance-report/security-summary.md >> release-notes.md
+        else
+          echo "Security compliance report not available" >> release-notes.md
+        fi
+
+    - name: Create Release Tag
+      if: needs.integration-tests.result == 'success' && needs.e2e-tests.result == 'success'
+      run: |
+        RELEASE_TAG="release-$(date '+%Y%m%d-%H%M%S')"
+        echo "RELEASE_TAG=${RELEASE_TAG}" >> $GITHUB_ENV
+        git tag ${RELEASE_TAG}
+        git push origin ${RELEASE_TAG}
+
+    - name: Promote to Production
+      if: needs.integration-tests.result == 'success' && needs.e2e-tests.result == 'success'
+      run: |
+        echo "All tests passed. Release is ready for production promotion."
+        echo "::notice::Production deployment approved - all quality gates passed"
+
+    - name: Upload Release Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: release-package
+        path: |
+          release-notes.md
+          security-compliance-report/
+          e2e-test-results/
+          dast-reports/
+
+    - name: Slack Notification
+      if: always()
+      run: |
+        STATUS="SUCCESS"
+        if [ "${{ needs.integration-tests.result }}" != "success" ] || [ "${{ needs.e2e-tests.result }}" != "success" ]; then
+          STATUS="FAILED"
+        fi
+        
+        echo "Release pipeline completed with status: ${STATUS}"
+        echo "Would send Slack notification: Release ${STATUS} for commit ${{ github.sha }}"

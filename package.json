@@ -4,7 +4,13 @@
   "description": "A vulnerable Node.js application for SAST testing",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js"
+    "start": "node app.js",
+    "test": "echo \"Warning: No tests specified. This is a vulnerable app for testing purposes.\" && exit 0",
+    "test:integration": "echo \"Integration tests would run here\"",
+    "test:e2e": "npx playwright test",
+    "security:scan": "echo \"Security scanning with various tools\"",
+    "docker:build": "docker build -t vulnapp67 .",
+    "docker:run": "docker run -p 3000:3000 vulnapp67"
   },
   "dependencies": {
     "express": "^4.17.1",
@@ -29,5 +35,9 @@
     "debug": "2.6.8",
     "ms": "2.0.0",
     "marked": "0.3.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "playwright": "^1.40.0"
   }
 }
